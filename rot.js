@@ -829,8 +829,8 @@ ROT.Display = function(options) {
 		spacing: 1,
 		fontFamily: "monospace",
 		fontStyle: "",
-		fg: "#ccc",
-		bg: "#000"
+		fg: {r: 255, g: 255, b: 255},
+		bg: {r: 0, g: 0, b: 0}
 	};
 	for (var p in options) { defaultOptions[p] = options[p]; }
 	this.setOptions(defaultOptions);
@@ -926,7 +926,7 @@ ROT.Display.prototype.draw = function(x, y, ch, fg, bg) {
 	if (!fg) { fg = this._options.fg; }
 	if (!bg) { bg = this._options.bg; }
 	this._data[x+","+y] = [x, y, ch, fg, bg];
-	
+	// this._dirty = true;
 	if (this._dirty === true) { return; } /* will already redraw everything */
 	if (!this._dirty) { this._dirty = {}; } /* first! */
 	this._dirty[x+","+y] = true;
@@ -1030,13 +1030,74 @@ ROT.Display.Backend.prototype.computeSize = function(availWidth, availHeight) {
 
 ROT.Display.Backend.prototype.computeFontSize = function(availWidth, availHeight) {
 }
+
+var renderToCanvas = function (width, height, renderFunction) {
+    var buffer = document.createElement('canvas');
+    buffer.width = width;
+    buffer.height = height;
+    renderFunction(buffer.getContext('2d'));
+    return buffer;
+};
+
 /**
  * @class Rectangular backend
  * @private
  */
+var blackToAlpha = function(imagedata){
+	var data = imagedata.data;
+	for (var i = 0; i < data.length; i += 4){
+		if (data[i] === 0 && data[i+1] === 0 && data[i+2] === 0){
+			data[i+3] = 255;
+		}
+	    	
+	}
+	imagedata.data = data;
+	return imagedata;
+};
+
+
+
+var tint = function(imagedata, workingimagedata, fg, bg){
+	var data = imagedata.data;
+	var wdata = workingimagedata.data;
+	for (var i = 0; i < data.length; i += 4){
+		if (data[i] > 0){
+			wdata[i] = fg.r;
+			wdata[i+1] = fg.g;
+			wdata[i+2] = fg.b;	
+			wdata[i+3] = 255;
+		}else{
+			wdata[i] = bg.r;
+			wdata[i+1] = bg.g;
+			wdata[i+2] = bg.b;
+			wdata[i+3] = 255;
+		}	
+	}
+	workingimagedata.data = wdata;
+	return workingimagedata;
+};
+
 ROT.Display.Rect = function(context) {
 	ROT.Display.Backend.call(this, context);
+	this._image = new Image();
+	this._image.src = './terminal8x8_gs_ro.png';
+
+	var image = this._image;
+	this._imageBuffer = renderToCanvas(this._image.width, this._image.height, function(ctx) {
+		ctx.drawImage(image, 0, 0);
+	});
+	this.glyphs = [];
 	
+	var imageWidthInCharacters = 16;
+	var charWidth = 8;
+	var charHeight = 8;
+	this.workingglyph = this._context.createImageData(charWidth,charHeight);
+	for (var i=0; i<255; i++){
+		var x = (i % imageWidthInCharacters) * charWidth;
+		var y = Math.floor(i / imageWidthInCharacters) * charHeight;
+		this.glyphs[i] = this._imageBuffer.getContext('2d').getImageData(x, y, charWidth, charHeight);
+		// this.glyphs[i] = blackToAlpha(this.glyphs[i]);
+	}
 	this._spacingX = 0;
 	this._spacingY = 0;
 	this._canvasCache = {};
@@ -1050,9 +1111,9 @@ ROT.Display.Rect.prototype.compute = function(options) {
 	this._canvasCache = {};
 	this._options = options;
 
-	var charWidth = Math.ceil(this._context.measureText("W").width);
+	var charWidth = 8; //Math.ceil(this._context.measureText("W").width);
 	this._spacingX = Math.ceil(options.spacing * charWidth);
-	this._spacingY = Math.ceil(options.spacing * options.fontSize);
+	this._spacingY = Math.ceil(options.spacing * 8);//options.fontSize);
 	this._context.canvas.width = options.width * this._spacingX;
 	this._context.canvas.height = options.height * this._spacingY;
 }
@@ -1102,16 +1163,18 @@ ROT.Display.Rect.prototype._drawNoCache = function(data, clearBefore) {
 	var ch = data[2];
 	var fg = data[3];
 	var bg = data[4];
-
-	if (clearBefore) { 
-		this._context.fillStyle = bg;
-		this._context.fillRect(x*this._spacingX, y*this._spacingY, this._spacingX, this._spacingY);
-	}
 	
-	if (!ch) { return; }
+	if (clearBefore) { 
+		// this._context.fillStyle = bg;
+		// this._context.fillRect(x*this._spacingX, y*this._spacingY, this._spacingX, this._spacingY);
+	}
 
-	this._context.fillStyle = fg;
-	this._context.fillText(ch, (x+0.5) * this._spacingX, (y+0.5) * this._spacingY);
+	if (!ch) { return; }
+	// this._context.fillStyle = fg;
+	// this._context.fillText(ch, (x+0.5) * this._spacingX, (y+0.5) * this._spacingY);
+	var code = ch.charCodeAt(0);
+	// this._context.drawImage(this._image, (code%16)*8, Math.floor(code/16)*8,8,8,(x+0.5) * this._spacingX, (y+0.5) * this._spacingY,8,8)
+	this._context.putImageData(tint(this.glyphs[code],this.workingglyph, fg, bg), (x+0.5) * this._spacingX, (y+0.5) * this._spacingY)
 }
 
 ROT.Display.Rect.prototype.computeSize = function(availWidth, availHeight) {
