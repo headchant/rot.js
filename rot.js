@@ -827,6 +827,12 @@ ROT.Display = function(options) {
 		fontSize: 15,
 		fps: 25,
 		spacing: 1,
+		image: './Alloy_curses_12x12.png',
+		imageWidthInCharacters: 16,
+		fontWidth: 12,
+		fontHeight: 12,
+		fontBackgroundColor: {r: 244, g: 0, b: 254},
+		fontForegroundColor: {r: 255, g: 255, b: 255},
 		fontFamily: "monospace",
 		fontStyle: "",
 		fg: {r: 255, g: 255, b: 255},
@@ -926,7 +932,7 @@ ROT.Display.prototype.draw = function(x, y, ch, fg, bg) {
 	if (!fg) { fg = this._options.fg; }
 	if (!bg) { bg = this._options.bg; }
 	this._data[x+","+y] = [x, y, ch, fg, bg];
-	// this._dirty = true;
+
 	if (this._dirty === true) { return; } /* will already redraw everything */
 	if (!this._dirty) { this._dirty = {}; } /* first! */
 	this._dirty[x+","+y] = true;
@@ -960,11 +966,11 @@ ROT.Display.prototype.drawText = function(x, y, text, maxWidth) {
 			break;
 
 			case ROT.Text.TYPE_FG:
-				fg = token.value || null;
+				fg = ROT.Color.fromString(token.value) || null;
 			break;
 
 			case ROT.Text.TYPE_BG:
-				bg = token.value || null;
+				bg = ROT.Color.fromString(token.value) || null;
 			break;
 
 			case ROT.Text.TYPE_NEWLINE:
@@ -987,7 +993,7 @@ ROT.Display.prototype._tick = function() {
 	if (this._dirty === true) { /* draw all */
 		this._context.fillStyle = this._options.bg;
 		this._context.fillRect(0, 0, this._context.canvas.width, this._context.canvas.height);
-
+		this._context.fillStyle = this._options.fg;
 		for (var id in this._data) { /* redraw cached data */
 			this._draw(id, false);
 		}
@@ -1043,30 +1049,17 @@ var renderToCanvas = function (width, height, renderFunction) {
  * @class Rectangular backend
  * @private
  */
-var blackToAlpha = function(imagedata){
-	var data = imagedata.data;
-	for (var i = 0; i < data.length; i += 4){
-		if (data[i] === 0 && data[i+1] === 0 && data[i+2] === 0){
-			data[i+3] = 255;
-		}
-	    	
-	}
-	imagedata.data = data;
-	return imagedata;
-};
 
-
-
-var tint = function(imagedata, workingimagedata, fg, bg){
+var tint = function(imagedata, workingimagedata, fg, bg, originalFG, originalBG){
 	var data = imagedata.data;
 	var wdata = workingimagedata.data;
 	for (var i = 0; i < data.length; i += 4){
-		if (data[i] > 0){
+		if (data[i] === originalFG.r && data[i+1] === originalFG.g && data[i+2] === originalFG.g){
 			wdata[i] = fg.r;
 			wdata[i+1] = fg.g;
 			wdata[i+2] = fg.b;	
 			wdata[i+3] = 255;
-		}else{
+		} else {
 			wdata[i] = bg.r;
 			wdata[i+1] = bg.g;
 			wdata[i+2] = bg.b;
@@ -1079,25 +1072,8 @@ var tint = function(imagedata, workingimagedata, fg, bg){
 
 ROT.Display.Rect = function(context) {
 	ROT.Display.Backend.call(this, context);
-	this._image = new Image();
-	this._image.src = './terminal8x8_gs_ro.png';
 
-	var image = this._image;
-	this._imageBuffer = renderToCanvas(this._image.width, this._image.height, function(ctx) {
-		ctx.drawImage(image, 0, 0);
-	});
-	this.glyphs = [];
-	
-	var imageWidthInCharacters = 16;
-	var charWidth = 8;
-	var charHeight = 8;
-	this.workingglyph = this._context.createImageData(charWidth,charHeight);
-	for (var i=0; i<255; i++){
-		var x = (i % imageWidthInCharacters) * charWidth;
-		var y = Math.floor(i / imageWidthInCharacters) * charHeight;
-		this.glyphs[i] = this._imageBuffer.getContext('2d').getImageData(x, y, charWidth, charHeight);
-		// this.glyphs[i] = blackToAlpha(this.glyphs[i]);
-	}
+
 	this._spacingX = 0;
 	this._spacingY = 0;
 	this._canvasCache = {};
@@ -1110,20 +1086,40 @@ ROT.Display.Rect.cache = false;
 ROT.Display.Rect.prototype.compute = function(options) {
 	this._canvasCache = {};
 	this._options = options;
+	
+	this._image = new Image();
+	this._image.src = options.image;
 
-	var charWidth = 8; //Math.ceil(this._context.measureText("W").width);
+	var image = this._image;
+	this._imageBuffer = renderToCanvas(this._image.width, this._image.height, function(ctx) {
+		ctx.drawImage(image, 0, 0);
+	});
+	this.glyphs = [];
+	
+	var imageWidthInCharacters = options.imageWidthInCharacters;
+	var charWidth = options.fontWidth;
+	var charHeight = options.fontHeight;
+	this.workingglyph = this._context.createImageData(charWidth,charHeight);
+	for (var i=0; i<255; i++){
+		var x = (i % imageWidthInCharacters) * charWidth;
+		var y = Math.floor(i / imageWidthInCharacters) * charHeight;
+		this.glyphs[i] = this._imageBuffer.getContext('2d').getImageData(x, y, charWidth, charHeight);
+		// this.glyphs[i] = blackToAlpha(this.glyphs[i]);
+	}
+	
+	var charWidth = options.fontWidth; //Math.ceil(this._context.measureText("W").width);
 	this._spacingX = Math.ceil(options.spacing * charWidth);
-	this._spacingY = Math.ceil(options.spacing * 8);//options.fontSize);
+	this._spacingY = Math.ceil(options.spacing * options.fontHeight);//options.fontSize);
 	this._context.canvas.width = options.width * this._spacingX;
 	this._context.canvas.height = options.height * this._spacingY;
 }
 
 ROT.Display.Rect.prototype.draw = function(data, clearBefore) {
-	if (this.constructor.cache) {
-		this._drawWithCache(data, clearBefore);
-	} else {
+	// if (this.constructor.cache) {
+	// 	this._drawWithCache(data, clearBefore);
+	// } else {
 		this._drawNoCache(data, clearBefore);
-	}
+	// }
 }
 
 ROT.Display.Rect.prototype._drawWithCache = function(data, clearBefore) {
@@ -1163,18 +1159,21 @@ ROT.Display.Rect.prototype._drawNoCache = function(data, clearBefore) {
 	var ch = data[2];
 	var fg = data[3];
 	var bg = data[4];
-	
-	if (clearBefore) { 
-		// this._context.fillStyle = bg;
-		// this._context.fillRect(x*this._spacingX, y*this._spacingY, this._spacingX, this._spacingY);
-	}
-
+	this._context.globalCompositeOperation = "none";
+	// if (clearBefore) { 
+	// 	this._context.fillStyle = bg;
+	// 	this._context.fillRect(x*this._spacingX, y*this._spacingY, this._spacingX, this._spacingY);
+	// }
+		 	
 	if (!ch) { return; }
-	// this._context.fillStyle = fg;
-	// this._context.fillText(ch, (x+0.5) * this._spacingX, (y+0.5) * this._spacingY);
+	if (typeof(ch)!=='string') { return; }
+	
 	var code = ch.charCodeAt(0);
-	// this._context.drawImage(this._image, (code%16)*8, Math.floor(code/16)*8,8,8,(x+0.5) * this._spacingX, (y+0.5) * this._spacingY,8,8)
-	this._context.putImageData(tint(this.glyphs[code],this.workingglyph, fg, bg), (x+0.5) * this._spacingX, (y+0.5) * this._spacingY)
+	this._context.putImageData(
+		tint(this.glyphs[code],this.workingglyph, fg, bg, this._options.fontForegroundColor, this._options.fontBackgroundColor),
+		// this.glyphs[code],
+		(x+0.5) * this._spacingX, (y+0.5) * this._spacingY);
+	
 }
 
 ROT.Display.Rect.prototype.computeSize = function(availWidth, availHeight) {
@@ -3341,9 +3340,10 @@ ROT.Color = {
 			this._cache[str] = cached;
 		}
 
-		return cached.clone();
+		return {r: cached[0], g: cached[1], b: cached[2]};
 	},
-
+	
+	
 	/**
 	 * Add two or more colors
 	 * @param {number[]} color1
